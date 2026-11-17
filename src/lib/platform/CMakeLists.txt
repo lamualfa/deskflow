@@ -27,6 +27,12 @@ if(UNIX AND NOT APPLE)
   set(CMAKE_REQUIRED_LIBRARIES "${CMAKE_REQUIRED_LIBRARIES};${LIBPORTAL_LINK_LIBRARIES};")
   check_symbol_exists(xdp_input_capture_session_get_restore_token "libportal/inputcapture.h" HAVE_IC_RESTORE)
   check_symbol_exists(xdp_session_request_clipboard "libportal/portal-helpers.h;libportal/clipboard.h" HAVE_LP_CLIPBOARD)
+  if(NOT HAVE_LP_CLIPBOARD)
+    message(WARNING
+      "libportal ${LIBPORTAL_VERSION} does not provide the clipboard API (needs >= 0.10). "
+      "Wayland clipboard sharing will be compiled out. Install libportal >= 0.10 "
+      "(headers and library) and reconfigure to enable it.")
+  endif()
   check_symbol_exists(xdp_global_shortcut_new "libportal/globalshortcuts.h" HAVE_LP_SHORTCUTS)
   cmake_pop_check_state()
 endif()

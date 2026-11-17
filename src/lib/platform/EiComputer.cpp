@@ -58,6 +58,12 @@ EiComputer::EiComputer(bool isPrimary, IEventQueue *events, bool usePortal)
   });
 
   if (usePortal) {
+#ifndef HAVE_LIBPORTAL_CLIPBOARD
+    LOG_WARN(
+        "Wayland clipboard sharing is unavailable: this build lacks libportal clipboard support "
+        "(requires libportal >= 0.10 at build time)."
+    );
+#endif
     m_events->addHandler(EventTypes::EIConnected, getEventTarget(), [this](const auto &e) {
       handleConnectedToEisEvent(e);
     });
