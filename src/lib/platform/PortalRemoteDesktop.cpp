@@ -264,6 +264,17 @@ void PortalRemoteDesktop::handleSelectionOwnerChanged(XdpSession *session, char 
   const qint64 maxBytes = static_cast<qint64>(m_computer->maximumClipboardSize()) * 1024;
   if (PortalClipboard::readSelectionIntoCache(m_computer->getClipboardCache(), session, mimeTypes, maxBytes))
     m_computer->sendClipboardEvent(EventTypes::ClipboardGrabbed, kClipboardClipboard);
+#ifdef HAVE_LIBPORTAL_CLIPBOARD
+  if (!m_session) {
+    LOG_DEBUG("portal remote desktop clipboard claim deferred, no session yet");
+    return;
+  }
+  if (!xdp_session_is_clipboard_enabled(m_session)) {
+    LOG_DEBUG("portal remote desktop clipboard not enabled on session, cannot claim");
+    return;
+  }
+  PortalClipboard::claimOwnership(m_computer->getClipboardCache(), m_session);
+#endif
 #else
   (void)session;
   (void)mimeTypes;
