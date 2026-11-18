@@ -500,7 +500,10 @@ bool EiComputer::setClipboard(ClipboardID id, const IClipboard *clipboard)
     if (!targetClipboard) {
       return false;
     }
-    return IClipboard::copy(targetClipboard, clipboard);
+    bool ok = IClipboard::copy(targetClipboard, clipboard);
+    if (ok)
+      m_portalInputCapture->claimClipboardOwnership();
+    return ok;
   }
 
   // Otherwise use our own clipboard

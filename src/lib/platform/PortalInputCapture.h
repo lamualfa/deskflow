@@ -60,7 +60,9 @@ private:
 
   void handleSelectionTransfer(XdpSession *session, const char *mimeType, uint32_t serial) const;
   void readClipboardSelection(XdpSession *session) const;
-  void claimClipboardOwnership(XdpSession *session) const;
+public:
+  void claimClipboardOwnership() const;
+private:
 
   /// g_signal_connect callback wrapper
   static void sessionClosed(XdpSession *session, const gpointer data)

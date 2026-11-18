@@ -249,9 +249,12 @@ void PortalInputCapture::handleSessionClosed(XdpSession *session)
   m_signals.at(Signal::SessionClosed) = 0;
 }
 
-void PortalInputCapture::claimClipboardOwnership([[maybe_unused]] XdpSession *session) const
+void PortalInputCapture::claimClipboardOwnership() const
 {
 #ifdef HAVE_LIBPORTAL_CLIPBOARD
+  if (!m_session)
+    return;
+  XdpSession *session = xdp_input_capture_session_get_session(m_session);
   PortalClipboard::claimOwnership(m_clipboard, session);
 #endif
 }
@@ -755,7 +758,7 @@ void PortalInputCapture::handleActivated(
       LOG_DEBUG("no current clipboard selection");
     }
 
-    claimClipboardOwnership(session);
+    claimClipboardOwnership();
     LOG_DEBUG("activation clipboard handling complete");
   } else {
     LOG_WARN("input capture activated without a session, skipping clipboard read");
