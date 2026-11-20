@@ -1017,7 +1017,7 @@ void EiComputer::handleSystemEvent(const Event &)
             m_portalInputCapture->release();
           }
           delete m_portalInputCapture;
-          m_portalInputCapture = new PortalInputCapture(this, this->m_events);
+          m_portalInputCapture = new PortalInputCapture(this, this->m_events, 2000);
         }
       }
       this->handlePortalSessionClosed();

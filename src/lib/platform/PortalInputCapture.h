@@ -29,7 +29,7 @@ class EiClipboard;
 class PortalInputCapture
 {
 public:
-  PortalInputCapture(EiComputer *computer, IEventQueue *events);
+  PortalInputCapture(EiComputer *computer, IEventQueue *events, guint initialDelayMs = 0);
   ~PortalInputCapture();
 
   // Get the clipboard for the specified ID
@@ -47,6 +47,7 @@ private:
   void glibThread(const void *);
   gboolean timeoutHandler() const;
   gboolean initSession();
+  void scheduleSessionInit(guint delayMs = 1000);
   void setupSession(XdpInputCaptureSession *session);
   void handleStart(GObject *object, GAsyncResult *res);
   void handleInitSession(GObject *object, GAsyncResult *res);
@@ -158,6 +159,7 @@ private:
 
   XdpPortal *m_portal = nullptr;
   XdpInputCaptureSession *m_session = nullptr;
+  guint m_initRetrySource = 0;
 
   std::map<Signal, gulong> m_signals = {
       {Signal::SessionClosed, 0},     {Signal::Disabled, 0},     {Signal::Activated, 0},

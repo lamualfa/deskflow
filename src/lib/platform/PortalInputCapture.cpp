@@ -18,6 +18,7 @@
 #ifdef HAVE_LIBPORTAL_CLIPBOARD
 #include "platform/PortalClipboard.h"
 #endif
+#include <gio/gio.h>
 
 #include <algorithm>
 #include <cmath>
@@ -35,6 +36,46 @@
 #include <QtEndian>
 
 namespace deskflow {
+
+namespace {
+
+// GNOME and logind close all remote-access sessions and inhibit new ones while
+// the session is locked. Starting a portal session during that window consumes
+// the restore token without creating a session, so the user gets a fresh
+// permission dialog on every wake. Defer instead.
+bool isSessionLocked()
+{
+  g_autoptr(GError) error = nullptr;
+  GDBusConnection *const bus = g_bus_get_sync(G_BUS_TYPE_SYSTEM, nullptr, &error);
+  if (!bus) {
+    return false;
+  }
+
+  g_autoptr(GVariant) session = g_dbus_connection_call_sync(
+      bus, "org.freedesktop.login1", "/org/freedesktop/login1", "org.freedesktop.login1.Manager", "GetSession",
+      g_variant_new("(s)", "auto"), G_VARIANT_TYPE("(o)"), G_DBUS_CALL_FLAGS_NONE, -1, nullptr, &error
+  );
+  if (!session) {
+    return false;
+  }
+
+  const gchar *sessionPath = nullptr;
+  g_variant_get(session, "(o)", &sessionPath);
+  g_autoptr(GVariant) property = g_dbus_connection_call_sync(
+      bus, "org.freedesktop.login1", sessionPath, "org.freedesktop.DBus.Properties", "Get",
+      g_variant_new("(ss)", "org.freedesktop.login1.Session", "LockedHint"), G_VARIANT_TYPE("(v)"),
+      G_DBUS_CALL_FLAGS_NONE, -1, nullptr, &error
+  );
+  if (!property) {
+    return false;
+  }
+
+  g_autoptr(GVariant) locked = nullptr;
+  g_variant_get(property, "(v)", &locked);
+  return locked && g_variant_get_boolean(locked);
+}
+
+} // namespace
 
 const char *PortalInputCapture::barrierSideName(BarrierSide side)
 {
@@ -168,7 +209,7 @@ bool PortalInputCapture::getClosestReleaseBarrier(
   return bestDistance != std::numeric_limits<int>::max();
 }
 
-PortalInputCapture::PortalInputCapture(EiComputer *computer, IEventQueue *events)
+PortalInputCapture::PortalInputCapture(EiComputer *computer, IEventQueue *events, guint initialDelayMs)
     : m_computer{computer},
       m_events{events},
       m_portalVersion(0),
@@ -182,15 +223,27 @@ PortalInputCapture::PortalInputCapture(EiComputer *computer, IEventQueue *events
   auto tMethodJob = new TMethodJob<PortalInputCapture>(this, &PortalInputCapture::glibThread);
   m_glibThread = new Thread(tMethodJob);
 
-  auto captureCallback = [](gpointer data) { return static_cast<PortalInputCapture *>(data)->initSession(); };
-
-  g_idle_add(captureCallback, this);
+  if (initialDelayMs > 0) {
+    // A reconnection right after a portal close races with mutter's remote
+    // access inhibit on lock/suspend; starting in that window burns the
+    // restore token without creating a session.
+    scheduleSessionInit(initialDelayMs);
+  } else {
+    g_idle_add([](gpointer data) -> gboolean {
+      static_cast<PortalInputCapture *>(data)->initSession();
+      return G_SOURCE_REMOVE;
+    }, this);
+  }
 }
 
 PortalInputCapture::~PortalInputCapture()
 {
   if (g_main_loop_is_running(m_glibMainLoop))
     g_main_loop_quit(m_glibMainLoop);
+  if (m_initRetrySource != 0) {
+    g_source_remove(m_initRetrySource);
+    m_initRetrySource = 0;
+  }
 
   if (m_glibThread) {
     m_glibThread->cancel();
@@ -369,9 +422,19 @@ void PortalInputCapture::handleStart(GObject *object, GAsyncResult *res)
 #ifdef HAVE_LIBPORTAL_INPUTCAPTURE_RESTORE
   LOG_DEBUG("portal input capture session initialized");
   if (!xdp_input_capture_session_start_finish(m_session, res, &error)) {
-    LOG_ERR("failed to start input capture session, quitting: %s", error->message);
-    g_main_loop_quit(m_glibMainLoop);
-    m_events->addEvent(Event(EventTypes::Quit));
+    if (error->code == G_IO_ERROR_CANCELLED) {
+      LOG_ERR("input capture session start was cancelled, quitting: %s", error->message);
+      g_main_loop_quit(m_glibMainLoop);
+      m_events->addEvent(Event(EventTypes::Quit));
+      return;
+    }
+
+    LOG_WARN("failed to start input capture session, retrying: %s", error->message);
+    // The portal consumes the restore token before attempting the start, so a
+    // failed start leaves the saved token stale.
+    Settings::setValue(Settings::Server::XdpRestoreToken, QString());
+    g_clear_object(&m_session);
+    scheduleSessionInit();
     return;
   }
 
@@ -566,9 +629,32 @@ void PortalInputCapture::addBarrier(
   m_barrierInfo.push_back({id, side, zoneX, zoneY, zoneWidth, zoneHeight, x1, y1, x2, y2});
 }
 
+void PortalInputCapture::scheduleSessionInit(guint delayMs)
+{
+  if (m_initRetrySource != 0) {
+    return;
+  }
+
+  m_initRetrySource = g_timeout_add(
+      delayMs,
+      [](gpointer data) -> gboolean {
+        auto *self = static_cast<PortalInputCapture *>(data);
+        self->m_initRetrySource = 0;
+        self->initSession();
+        return G_SOURCE_REMOVE;
+      },
+      this
+  );
+}
+
 gboolean PortalInputCapture::initSession()
 {
   LOG_DEBUG("setting up input capture session");
+  if (isSessionLocked()) {
+    LOG_DEBUG("session is locked, delaying input capture session until unlock");
+    scheduleSessionInit();
+    return false;
+  }
   XdpInputCaptureSession *session;
 #ifdef HAVE_LIBPORTAL_INPUTCAPTURE_RESTORE
   g_autoptr(GError) error = nullptr;

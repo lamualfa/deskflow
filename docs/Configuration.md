@@ -16,6 +16,11 @@ The search order for a setting file depends on your operating system
 A new settings file will be created in the user path if no settings file is found.
 The path of the settings file will be used as the base for all other config files.
 
+On Wayland, the desktop portal input-capture restore token is stored in
+`<XDG_STATE_HOME>/Deskflow.state` (default `~/.local/state/Deskflow.state`).
+Keep **Remember this selection** enabled in the portal dialog; after sleep,
+Deskflow waits for the session to unlock before restoring the capture session.
+
 ### macOS
  
   1. `~/Library/Deskflow/Deskflow.conf`
